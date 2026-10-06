@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Memory Puzzle</title>
+<style>
+:root{--bg:#f4f1ff;--card:#fff;--ink:#241b4b;--mut:#7a72a3;--ac:#6c4cf1;--ac2:#ff6b9a;--ok:#2bb673;--back:#6c4cf1;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15112b;--card:#241d4a;--ink:#f1eeff;--mut:#9d95c9;--ac:#8f78ff;--back:#8f78ff}}
+:root[data-theme="dark"]{--bg:#15112b;--card:#241d4a;--ink:#f1eeff;--mut:#9d95c9;--ac:#8f78ff;--back:#8f78ff}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh;display:flex;justify-content:center}
+#app{width:100%;max-width:520px;padding:20px 16px;text-align:center}
+h1{margin:24px 0 4px;font-size:2rem}
+p.sub{color:var(--mut);margin:0 0 24px}
+.btn{display:block;width:100%;margin:12px 0;padding:16px;border:0;border-radius:16px;font-size:1.1rem;font-weight:700;color:#fff;background:var(--ac);cursor:pointer;transition:transform .1s}
+.btn:active{transform:scale(.97)}
+.btn.alt{background:var(--ac2)}.btn.ok{background:var(--ok)}
+.btn.ghost{background:transparent;color:var(--mut);border:2px solid var(--mut)}
+.hud{display:flex;gap:8px;justify-content:center;margin:8px 0 14px;flex-wrap:wrap}
+.pill{padding:8px 14px;border-radius:999px;background:var(--card);font-weight:700;border:2px solid transparent}
+.pill.on{border-color:var(--ac2)}
+.grid{display:grid;gap:8px}
+.c{aspect-ratio:1;perspective:600px;cursor:pointer;border:0;background:none;padding:0}
+.in{position:relative;width:100%;height:100%;transition:transform .35s;transform-style:preserve-3d}
+.c.up .in,.c.m .in{transform:rotateY(180deg)}
+.f,.b{position:absolute;inset:0;border-radius:12px;display:flex;align-items:center;justify-content:center;backface-visibility:hidden}
+.b{background:var(--back);color:#fff;font-size:1.4rem}
+.f{background:var(--card);transform:rotateY(180deg);font-size:clamp(1.4rem,7vw,2.4rem)}
+.c.m .f{opacity:.45}
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:20px}
+#ov .box{background:var(--card);border-radius:20px;padding:24px;max-width:340px;width:100%}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="ov"><div class="box"><h2 id="ot"></h2><p id="os" style="color:var(--mut)"></p>
+<button class="btn" id="again">Play again</button><button class="btn ghost" id="tomenu">Main menu</button></div></div>
+<script>
+const LEVELS={Easy:{pairs:6,cols:4,bot:.35},Normal:{pairs:8,cols:4,bot:.7},Hard:{pairs:12,cols:6,bot:1}};
+const EMO=["🍎","🐱","🚀","🌈","🎸","🍕","🐳","⚽","🌸","🎲","🦊","🍩"];
+const app=document.getElementById('app'),ov=document.getElementById('ov');
+let mode,level,cards,picks,cur,score,moves,lock,mem,over;
+
+function menu(){
+  ov.style.display='none';
+  app.innerHTML=`<h1>🧩 Memory Puzzle</h1><p class="sub">Find all the matching pairs</p>
+  <button class="btn" data-m="1p">1 Player</button>
+  <button class="btn alt" data-m="2p">2 Player</button>
+  <button class="btn ok" data-m="bot">Play with Bot 🤖</button>`;
+  app.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{mode=b.dataset.m;levelMenu()});
+}
+function levelMenu(){
+  app.innerHTML=`<h1>Choose Level</h1><p class="sub">${{"1p":"1 Player","2p":"2 Player",bot:"Play with Bot"}[mode]}</p>
+  <button class="btn ok" data-l="Easy">Easy</button>
+  <button class="btn" data-l="Normal">Normal</button>
+  <button class="btn alt" data-l="Hard">Hard</button>
+  <button class="btn ghost" id="bk">← Back</button>`;
+  app.querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{level=b.dataset.l;start()});
+  document.getElementById('bk').onclick=menu;
+}
+function start(){
+  const L=LEVELS[level];
+  const s=EMO.slice(0,L.pairs);
+  cards=[...s,...s].sort(()=>Math.random()-.5).map(v=>({v,up:false,m:false}));
+  picks=[];cur=0;score=[0,0];moves=0;lock=false;mem={};over=false;
+  app.innerHTML=`<div class="hud" id="hud"></div><div class="grid" id="g" style="grid-template-columns:repeat(${L.cols},1fr)"></div>
+  <button class="btn ghost" id="q" style="margin-top:20px">Quit to menu</button>`;
+  const g=document.getElementById('g');
+  cards.forEach((c,i)=>{const b=document.createElement('button');b.className='c';b.id='c'+i;
+    b.innerHTML='<div class="in"><div class="b">?</div><div class="f">'+c.v+'</div></div>';
+    b.onclick=()=>{if(mode==='bot'&&cur===1)return;flip(i)};g.appendChild(b)});
+  document.getElementById('q').onclick=menu;
+  hud();
+}
+function names(){return mode==='bot'?['You','Bot 🤖']:['Player 1','Player 2']}
+function hud(){
+  const h=document.getElementById('hud');
+  if(mode==='1p'){h.innerHTML=`<span class="pill">Moves: ${moves}</span><span class="pill">Pairs: ${score[0]}/${LEVELS[level].pairs}</span><span class="pill">${level}</span>`;return}
+  const n=names();
+  h.innerHTML=[0,1].map(i=>`<span class="pill ${cur===i?'on':''}">${n[i]}: ${score[i]}</span>`).join('')+`<span class="pill">${level}</span>`;
+}
+function flip(i){
+  const c=cards[i];
+  if(lock||over||c.up||c.m)return;
+  c.up=true;mem[i]=c.v;
+  document.getElementById('c'+i).classList.add('up');
+  picks.push(i);
+  if(picks.length<2){if(mode==='bot'&&cur===1)setTimeout(botSecond,650);return}
+  lock=true;moves++;
+  setTimeout(resolve,850);
+}
+function resolve(){
+  const [a,b]=picks;picks=[];
+  if(cards[a].v===cards[b].v){
+    [a,b].forEach(i=>{cards[i].m=true;document.getElementById('c'+i).classList.add('m')});
+    score[cur]++;hud();
+    if(cards.every(c=>c.m))return finish();
+  }else{
+    [a,b].forEach(i=>{cards[i].up=false;document.getElementById('c'+i).classList.remove('up')});
+    if(mode!=='1p')cur=1-cur;
+  }
+  hud();lock=false;
+  if(mode==='bot'&&cur===1)setTimeout(botFirst,700);
+}
+const free=()=>cards.map((c,i)=>i).filter(i=>!cards[i].m&&!cards[i].up);
+const rnd=a=>a[Math.floor(Math.random()*a.length)];
+function botFirst(){
+  if(over)return;
+  const p=LEVELS[level].bot,f=free();
+  // known pair?
+  const seen={};let pair=null;
+  f.forEach(i=>{if(mem[i]){if(seen[mem[i]]!==undefined)pair=[seen[mem[i]],i];seen[mem[i]]=i}});
+  if(pair&&Math.random()<p)return flip(pair[0]),setTimeout(()=>flip(pair[1]),650);
+  const unknown=f.filter(i=>!mem[i]);
+  flip(rnd(unknown.length?unknown:f));
+}
+function botSecond(){
+  if(over)return;
+  const p=LEVELS[level].bot,first=picks[0],f=free().filter(i=>i!==first);
+  const m=f.find(i=>mem[i]===cards[first].v);
+  if(m!==undefined&&Math.random()<p)return flip(m);
+  const unknown=f.filter(i=>!mem[i]);
+  flip(rnd(unknown.length?unknown:f));
+}
+function finish(){
+  over=true;let t,s;
+  if(mode==='1p'){t='🎉 Solved!';s=`${moves} moves on ${level}.`}
+  else{const n=names();
+    if(score[0]===score[1]){t='🤝 Draw!'}
+    else t=`🏆 ${n[score[0]>score[1]?0:1]} wins!`;
+    s=`${n[0]} ${score[0]} – ${score[1]} ${n[1]}`}
+  document.getElementById('ot').textContent=t;
+  document.getElementById('os').textContent=s;
+  ov.style.display='flex';
+}
+document.getElementById('again').onclick=()=>{ov.style.display='none';start()};
+document.getElementById('tomenu').onclick=menu;
+menu();
+</script>
+</body>
+</html>
